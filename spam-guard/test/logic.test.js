@@ -77,7 +77,7 @@ test('parseVerdict throws on refusal and unknown categories', () => {
 
 test('request body uses structured output and fallbacks', () => {
   const body = g.buildRequestBody(
-    { from: 'a@b.com', to: 'me@x.com', subject: 's', date: 'd', body: 'hi', attachments: [] },
+    { from: 'a@b.com', to: 'me@x.com', subject: 's', date: 'd', body: 'hi', hasAttachment: false },
     cfg
   );
   assert.strictEqual(body.model, 'claude-opus-5-5');
@@ -89,7 +89,7 @@ test('request body uses structured output and fallbacks', () => {
 
 test('long bodies are truncated', () => {
   const text = g.formatEmailForPrompt(
-    { from: 'a', to: 'b', subject: 's', date: 'd', body: 'x'.repeat(10000), attachments: [] },
+    { from: 'a', to: 'b', subject: 's', date: 'd', body: 'x'.repeat(10000), hasAttachment: true },
     100
   );
   assert.ok(text.includes('[... body truncated for length ...]'));

@@ -10,6 +10,13 @@
  *   1. Script Properties -> ANTHROPIC_API_KEY
  *   2. Run setup() once and approve the permissions
  *   3. Leave DRY_RUN on for a few days, review the log, then turn it off
+ *
+ * Hard rules, enforced by test/safety.test.js:
+ *   - Never replies to, forwards, sends, or drafts an email.
+ *   - Never opens, downloads, or reads an attachment. Whether an email has one
+ *     comes from Gmail search metadata, not the file.
+ *   - Never follows a link. The only network call is to the Claude API.
+ *   - Claude gets text only and no tools. It returns a label, nothing else.
  */
 
 var CONFIG = {
@@ -112,12 +119,13 @@ function scanInbox() {
     var checkedLabel = getOrCreateLabel_(CONFIG.LABEL_CHECKED);
     var wouldSpamLabel = getOrCreateLabel_(CONFIG.LABEL_WOULD_SPAM);
     var threads = GmailApp.search(CONFIG.SEARCH_QUERY, 0, CONFIG.MAX_THREADS_PER_RUN);
+    var withAttachments = threadIdsWithAttachments_();
 
     for (var i = 0; i < threads.length; i++) {
       var thread = threads[i];
       var messages = thread.getMessages();
       var latest = messages[messages.length - 1];
-      var email = readMessage_(latest);
+      var email = readMessage_(latest, withAttachments[thread.getId()] === true);
 
       var skip = skipReason_(email, messages, me);
       if (skip) {
@@ -223,7 +231,7 @@ function buildSystemPrompt(config) {
     '',
     'Useful signals: SPF/DKIM/DMARC failures, a Reply-To that differs from the sender, display ' +
       'names that do not match the address, urgency or secrecy, links whose text and target ' +
-      'differ, attachments pitched as invoices from unknown senders.',
+      'differ, an unknown sender pushing you to open an attachment such as an invoice.',
     '',
     'When unsure between legit and anything else, choose legit and give a low confidence. ' +
       'Moving a real email to spam costs far more than letting a pitch through.',
@@ -249,7 +257,7 @@ function formatEmailForPrompt(email, maxBodyChars) {
     'Date: ' + email.date,
     'Has List-Unsubscribe header: ' + (email.listUnsubscribe ? 'yes' : 'no'),
     'Authentication-Results: ' + (email.authResults || '(none)'),
-    'Attachments: ' + (email.attachments.length ? email.attachments.join(', ') : '(none)'),
+    'Has attachment: ' + (email.hasAttachment ? 'yes' : 'no'),
     '',
     body,
     '</email>',
@@ -332,7 +340,18 @@ function haveEmailed_(address) {
 // Gmail and Sheets helpers
 // ---------------------------------------------------------------------------
 
-function readMessage_(message) {
+/**
+ * Which threads have attachments, answered by Gmail search. Attachments themselves are never touched.
+ */
+function threadIdsWithAttachments_() {
+  var ids = {};
+  GmailApp.search(CONFIG.SEARCH_QUERY + ' has:attachment', 0, CONFIG.MAX_THREADS_PER_RUN * 2).forEach(function (t) {
+    ids[t.getId()] = true;
+  });
+  return ids;
+}
+
+function readMessage_(message, hasAttachment) {
   return {
     id: message.getId(),
     from: message.getFrom(),
@@ -343,9 +362,7 @@ function readMessage_(message) {
     body: message.getPlainBody(),
     listUnsubscribe: message.getHeader('List-Unsubscribe'),
     authResults: message.getHeader('Authentication-Results'),
-    attachments: message.getAttachments({ includeInlineImages: false }).map(function (a) {
-      return a.getName();
-    }),
+    hasAttachment: hasAttachment,
   };
 }
 

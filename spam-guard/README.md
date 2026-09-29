@@ -2,12 +2,24 @@
 
 A Gmail filter that uses Claude to catch what Gmail's own spam filter lets through: cold sales pitches and scams. It runs inside your Google account as an Apps Script, so there is no server to host.
 
+## What it will never do
+
+- **Reply, forward, send, or draft** anything. It has no code path for any of these.
+- **Open, download, or read an attachment.** It learns whether an email *has* an attachment from Gmail's search index (`has:attachment`), never from the file itself.
+- **Click or fetch a link.** The only network call it makes is to the Claude API.
+- **Delete anything.** Its only actions are adding a label and moving a thread to Spam.
+- **Let Claude act.** Claude gets the email as plain text, with no tools, and can only answer with a category.
+
+`test/safety.test.js` enforces these rules. It fails if a reply, send, forward, draft, attachment, delete, or non-Claude network call ever appears in `Code.gs`.
+
+A caveat: Google has no permission scope that lets a script move mail to Spam without also allowing it to send mail. So the guarantee comes from the code and the tests, not from Google. Read `Code.gs` before you paste it in. It's short.
+
 ## How it works
 
 Every 10 minutes it looks at inbox threads from the last 2 days that it hasn't checked yet.
 
 1. **Skips anything it trusts without asking Claude.** That means mail from you, threads you've replied in, senders you have ever emailed, starred threads, and anything from `ALLOWED_DOMAINS` or `ALLOWED_ADDRESSES`.
-2. **Sends everything else to Claude.** Claude gets the headers, the SPF/DKIM results, the attachment names and the first 6,000 characters of the body. It sorts the email into one of four categories: `legit`, `marketing`, `cold_sales` or `scam`.
+2. **Sends everything else to Claude.** Claude gets the headers, the SPF/DKIM results, whether there is an attachment (yes/no only) and the first 6,000 characters of the body. It sorts the email into one of four categories: `legit`, `marketing`, `cold_sales` or `scam`.
 3. **Acts on the verdict:**
 
    | Category | Default action |
@@ -76,8 +88,8 @@ You pay one Claude API call per unknown sender's email. Emails from trusted send
 
 ## Tests
 
-The decision logic has unit tests that run under Node. They cover the thresholds, the allowlist and response parsing:
+The unit tests run under Node. They cover the thresholds, the allowlist, response parsing, and the safety rules above:
 
 ```
-node --test spam-guard/test/logic.test.js
+node --test spam-guard/test/logic.test.js spam-guard/test/safety.test.js
 ```
